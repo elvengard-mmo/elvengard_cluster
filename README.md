@@ -18,6 +18,8 @@ This is the goal of this ambitious project: make a toolkit to group together dif
 
 **... TODO ...**
 
+OTP 25 min
+
 ## Installation
 
 The package can be installed by adding `elvengard_cluster` to your list of dependencies in `mix.exs`:
