@@ -20,9 +20,14 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @spec connect_node(GenServer.server()) :: :ok | {:error, :retry_limit_exceed}
-  def connect_node(manager \\ @default_name, timeout \\ @default_timeout) do
-    GenServer.call(manager, :connect_node, timeout)
+  @spec connect_node(timeout()) :: :ok | {:error, :retry_limit_exceed}
+  def connect_node(timeout \\ @default_timeout) do
+    GenServer.call(@default_name, :connect_node, timeout)
+  end
+
+  @spec connected?() :: boolean()
+  def connected?() do
+    GenServer.call(@default_name, :connected?)
   end
 
   ## GenServer behaviour
@@ -47,6 +52,10 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
   end
 
   @impl true
+  def handle_call(:connected?, _from, state) do
+    {:reply, state.connected, state}
+  end
+
   def handle_call(:connect_node, from, state) do
     %{retry: retry, copy_type: copy_type} = state
     schedule_connect_node(retry, copy_type, from)
