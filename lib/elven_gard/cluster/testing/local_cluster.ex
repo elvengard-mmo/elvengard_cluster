@@ -2,6 +2,13 @@ defmodule ElvenGard.Cluster.Testing.LocalCluster do
   @moduledoc """
   Easy local cluster handling for Elixir.
 
+  This library is a utility library to offer easier testing of distributed
+  clusters for Elixir. It offers very minimal shimming above several built
+  in Erlang features to provide seamless node creations, especially useful
+  when testing distributed applications.
+
+  -------
+
   **ALL CREDIT TO**: https://github.com/whitfin/local-cluster
 
   I just did some small updates:
@@ -9,10 +16,6 @@ defmodule ElvenGard.Cluster.Testing.LocalCluster do
     - No dependency
     - Update to support OTP 25 (remove :slave and use :peer instead)
 
-  This library is a utility library to offer easier testing of distributed
-  clusters for Elixir. It offers very minimal shimming above several built
-  in Erlang features to provide seamless node creations, especially useful
-  when testing distributed applications.
   """
 
   @doc """
@@ -68,7 +71,7 @@ defmodule ElvenGard.Cluster.Testing.LocalCluster do
         {:ok, peer, node} =
           :peer.start_link(%{
             host: '127.0.0.1',
-            name: :"#{prefix}#{idx}",
+            name: :"#{prefix}-#{idx}",
             args: [
               '-loader',
               'inet',
