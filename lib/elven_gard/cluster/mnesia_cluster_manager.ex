@@ -21,16 +21,17 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
 
   @spec connect(node(), timeout()) :: :ok | {:error, :retry_limit_exceed}
   def connect(master, timeout \\ :infinity) do
-    if master == node() do
-      :ok
-    else
-      GenServer.call(@default_name, {:connect, master}, timeout)
-    end
+    GenServer.call(@default_name, {:connect, master}, timeout)
   end
 
   @spec connected?() :: boolean()
   def connected?() do
     GenServer.call(@default_name, :connected?)
+  end
+
+  @spec wait_connected(timeout()) :: :ok | {:error, :timeout}
+  def wait_connected(timeout \\ :infinity) do
+    do_wait_connected(timeout)
   end
 
   ## GenServer behaviour
@@ -92,7 +93,7 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
 
   @impl true
   def handle_info({:connect, _master, counter, from}, state) when counter < 1 do
-    unless is_nil(from), do: GenServer.reply(from, {:error, :retry_limit_exceed})
+    maybe_reply(from, {:error, :retry_limit_exceed})
     {:noreply, state}
   end
 
@@ -108,20 +109,30 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
 
       {{:error, :noconnection}, _counter} ->
         Logger.warn("connect cannot connect to #{inspect(master)}")
-        GenServer.reply(from, {:error, :retry_limit_exceed})
+        maybe_reply(from, {:error, :retry_limit_exceed})
         {:noreply, state}
 
       {:ok, _} ->
         Logger.info("connected to master: #{inspect(master)} - copy_type: #{inspect(copy_type)}")
-        GenServer.reply(from, :ok)
+        maybe_reply(from, :ok)
         {:noreply, %{state | connected: true}}
     end
   end
 
   ## Helpers
 
+  defp now(), do: System.monotonic_time(:millisecond)
+
+  defp maybe_reply(nil, _reply), do: :ok
+  defp maybe_reply(from, reply), do: GenServer.reply(from, reply)
+
+  defp expired_timeout?(_start, :infinity), do: false
+  defp expired_timeout?(start, timeout), do: now() > start + timeout
+
   defp schedule_connect_node(master, counter, interval, from \\ nil) do
-    Process.send_after(self(), {:connect, master, counter, from}, interval)
+    if master != node() do
+      Process.send_after(self(), {:connect, master, counter, from}, interval)
+    end
   end
 
   defp try_connect_node(master, copy_type) do
@@ -132,6 +143,20 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
     case result do
       {[{^master, :ok}], []} -> :ok
       _ -> {:error, :noconnection}
+    end
+  end
+
+  defp do_wait_connected(start \\ now(), timeout) do
+    with {:timeout, false} <- {:timeout, expired_timeout?(start, timeout)},
+         {:connected, true} <- {:connected, connected?()} do
+      :ok
+    else
+      {:timeout, true} ->
+        {:error, :timeout}
+
+      {:connected, false} ->
+        Process.sleep(10)
+        do_wait_connected(start, timeout)
     end
   end
 end
