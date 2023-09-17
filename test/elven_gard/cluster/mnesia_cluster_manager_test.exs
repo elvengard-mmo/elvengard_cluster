@@ -1,15 +1,14 @@
 defmodule ElvenGard.Cluster.MnesiaClusterManagerTest do
   use ExUnit.Case, async: true
+  use ElvenGard.Cluster.Testing.ExUnitCluster
 
   alias ElvenGard.Cluster.MnesiaClusterManager
   alias ElvenGard.Cluster.Testing.LocalCluster
 
   ## Tests
 
-  test "toto" do
-    # Start nodes
-    [node1, node2] = nodes = start_nodes("my-cluster", 2)
-
+  @nodes 3
+  cluster "toto", %{nodes: nodes} do
     # Start MnesiaClusterManager
     opts = [auto_connect: false, retry_interval: 1]
     :ok = multi_spawn_request(nodes, MnesiaClusterManager, opts)
@@ -18,11 +17,6 @@ defmodule ElvenGard.Cluster.MnesiaClusterManagerTest do
   end
 
   ## Helpers
-
-  defp start_nodes(prefix, count) do
-    peer_nodes = LocalCluster.start_nodes(prefix, count)
-    Enum.map(peer_nodes, &elem(&1, 1))
-  end
 
   defp multi_spawn_request(nodes, module, opts) do
     Enum.map(nodes, &Node.spawn_link(&1, module, :start_link, [opts]))
