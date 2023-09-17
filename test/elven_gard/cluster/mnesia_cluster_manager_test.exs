@@ -21,8 +21,7 @@ defmodule ElvenGard.Cluster.MnesiaClusterManagerTest do
     [node1, node2, node3] = nodes
 
     # Start MnesiaClusterManager
-    opts = [auto_connect: false, retry_interval: 10]
-    :ok = multi_spawn_request!(nodes, MnesiaClusterManager, opts)
+    :ok = multi_spawn_request!(nodes, MnesiaClusterManager, [])
 
     # No node is connected
     {result, []} = :rpc.multicall(nodes, MnesiaClusterManager, :connected?, [])
@@ -37,6 +36,9 @@ defmodule ElvenGard.Cluster.MnesiaClusterManagerTest do
     {result, []} = :rpc.multicall([node2], MnesiaClusterManager, :connect, [node1])
     assert [:ok] = result
 
+    {result, []} = :rpc.multicall(nodes, MnesiaClusterManager, :connected?, [])
+    assert [true, true, false] = result
+
     {result, []} = :rpc.multicall(nodes, :mnesia, :system_info, [:running_db_nodes])
     assert [^node2, ^node1] = Enum.at(result, 0)
     assert [^node1, ^node2] = Enum.at(result, 1)
@@ -46,15 +48,34 @@ defmodule ElvenGard.Cluster.MnesiaClusterManagerTest do
     {result, []} = :rpc.multicall([node3], MnesiaClusterManager, :connect, [node2])
     assert [:ok] = result
 
+    {result, []} = :rpc.multicall(nodes, MnesiaClusterManager, :connected?, [])
+    assert [true, true, true] = result
+
     {result, []} = :rpc.multicall(nodes, :mnesia, :system_info, [:running_db_nodes])
     assert [^node3, ^node2, ^node1] = Enum.at(result, 0)
     assert [^node3, ^node1, ^node2] = Enum.at(result, 1)
     assert [^node1, ^node2, ^node3] = Enum.at(result, 2)
   end
 
+  @nodes 1
+  cluster "trying to connect to invalid node", %{nodes: [node]} do
+    # Start MnesiaClusterManager
+    :ok = multi_spawn_request!([node], MnesiaClusterManager, retry: 1)
+    refute :rpc.call(node, MnesiaClusterManager, :connected?, [])
+
+    # Connect to an invalid node
+    assert {:error, :retry_limit_exceed} =
+             :rpc.call(node, MnesiaClusterManager, :connect, [invalid_node()])
+
+    refute :rpc.call(node, MnesiaClusterManager, :connected?, [])
+  end
+
+  ## TODO: Test double connect
+
   ## Helpers
 
   defp now(), do: System.monotonic_time(:millisecond)
+  defp invalid_node(), do: :"invalid_node@127.0.0.1"
 
   defp multi_spawn_request!(nodes, module, opts) do
     Enum.map(nodes, &Node.spawn_link(&1, module, :start_link, [opts]))

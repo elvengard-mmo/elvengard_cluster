@@ -91,7 +91,7 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
   end
 
   @impl true
-  def handle_info({:connect, _master, 0, from}, state) do
+  def handle_info({:connect, _master, counter, from}, state) when counter < 1 do
     unless is_nil(from), do: GenServer.reply(from, {:error, :retry_limit_exceed})
     {:noreply, state}
   end
@@ -99,14 +99,19 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
   def handle_info({:connect, master, counter, from}, state) do
     %{retry_interval: retry_interval, copy_type: copy_type} = state
 
-    case try_connect_node(master, copy_type) do
-      {:error, :noconnection} ->
+    case {try_connect_node(master, copy_type), counter} do
+      {{:error, :noconnection}, counter} when counter == :infinity or counter > 1 ->
         Logger.warn("connect cannot connect to #{inspect(master)}, retry in #{retry_interval}ms")
         new_counter = if counter == :infinity, do: :infinity, else: counter - 1
         schedule_connect_node(master, new_counter, retry_interval, from)
         {:noreply, state}
 
-      :ok ->
+      {{:error, :noconnection}, _counter} ->
+        Logger.warn("connect cannot connect to #{inspect(master)}")
+        GenServer.reply(from, {:error, :retry_limit_exceed})
+        {:noreply, state}
+
+      {:ok, _} ->
         Logger.info("connected to master: #{inspect(master)} - copy_type: #{inspect(copy_type)}")
         GenServer.reply(from, :ok)
         {:noreply, %{state | connected: true}}
