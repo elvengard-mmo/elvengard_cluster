@@ -6,15 +6,50 @@ defmodule ElvenGard.Cluster.MnesiaClusterManagerTest do
 
   @timeout 5_000
 
+  ## Setup
+
+  setup %{nodes: nodes} do
+    # Remove logs
+    :rpc.multicall(nodes, Logger, :configure, [[level: :warn]])
+    :ok
+  end
+
   ## Tests
 
   @nodes 3
-  cluster "toto", %{nodes: nodes} do
+  cluster "create cluster and manually connect", %{nodes: nodes} do
+    [node1, node2, node3] = nodes
+
     # Start MnesiaClusterManager
-    opts = [auto_connect: false, retry_interval: 1]
+    opts = [auto_connect: false, retry_interval: 10]
     :ok = multi_spawn_request!(nodes, MnesiaClusterManager, opts)
 
-    :rpc.multicall(nodes, MnesiaClusterManager, :connected?, []) |> IO.inspect()
+    # No node is connected
+    {result, []} = :rpc.multicall(nodes, MnesiaClusterManager, :connected?, [])
+    assert [false, false, false] = result
+
+    {result, []} = :rpc.multicall(nodes, :mnesia, :system_info, [:running_db_nodes])
+    assert [^node1] = Enum.at(result, 0)
+    assert [^node2] = Enum.at(result, 1)
+    assert [^node3] = Enum.at(result, 2)
+
+    # Connect node2 to node 1
+    {result, []} = :rpc.multicall([node2], MnesiaClusterManager, :connect, [node1])
+    assert [:ok] = result
+
+    {result, []} = :rpc.multicall(nodes, :mnesia, :system_info, [:running_db_nodes])
+    assert [^node2, ^node1] = Enum.at(result, 0)
+    assert [^node1, ^node2] = Enum.at(result, 1)
+    assert [^node3] = Enum.at(result, 2)
+
+    # Connect node2 to node 1
+    {result, []} = :rpc.multicall([node3], MnesiaClusterManager, :connect, [node2])
+    assert [:ok] = result
+
+    {result, []} = :rpc.multicall(nodes, :mnesia, :system_info, [:running_db_nodes])
+    assert [^node3, ^node2, ^node1] = Enum.at(result, 0)
+    assert [^node3, ^node1, ^node2] = Enum.at(result, 1)
+    assert [^node1, ^node2, ^node3] = Enum.at(result, 2)
   end
 
   ## Helpers

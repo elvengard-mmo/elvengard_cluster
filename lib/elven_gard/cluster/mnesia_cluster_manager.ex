@@ -10,7 +10,6 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
   @type storage_type :: :ram_copies | :disc_copies | :disc_only_copies
 
   @default_name __MODULE__
-  @default_timeout 5_000
 
   ## Public API
 
@@ -20,9 +19,13 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @spec connect_node(timeout()) :: :ok | {:error, :retry_limit_exceed}
-  def connect_node(timeout \\ @default_timeout) do
-    GenServer.call(@default_name, :connect_node, timeout)
+  @spec connect(node(), timeout()) :: :ok | {:error, :retry_limit_exceed}
+  def connect(master, timeout \\ :infinity) do
+    if master == node() do
+      :ok
+    else
+      GenServer.call(@default_name, {:connect, master}, timeout)
+    end
   end
 
   @spec connected?() :: boolean()
@@ -37,7 +40,9 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
     retry = Keyword.get(opts, :retry, :infinity)
     retry_interval = Keyword.get(opts, :retry_interval, 1000)
     copy_type = Keyword.get(opts, :copy_type, :ram_copies)
-    auto_connect = Keyword.get(opts, :auto_connect, true)
+
+    master = Keyword.get(opts, :master)
+    auto_connect = Keyword.get(opts, :auto_connect, false)
 
     state = %{
       retry: retry,
@@ -46,7 +51,16 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
       connected: false
     }
 
-    if auto_connect, do: schedule_connect_node(retry, copy_type)
+    case {auto_connect, master} do
+      {true, nil} ->
+        raise ArgumentError, ":master node option is required when auto_connect is enabled"
+
+      {true, _} ->
+        schedule_connect_node(master, retry, retry_interval)
+
+      _ ->
+        :ok
+    end
 
     {:ok, state}
   end
@@ -56,9 +70,9 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
     {:reply, state.connected, state}
   end
 
-  def handle_call(:connect_node, from, state) do
-    %{retry: retry, copy_type: copy_type} = state
-    schedule_connect_node(retry, copy_type, from)
+  def handle_call({:connect, master}, from, state) do
+    %{retry: retry, retry_interval: retry_interval} = state
+    schedule_connect_node(master, retry, retry_interval, from)
     {:noreply, state}
   end
 
@@ -77,36 +91,42 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
   end
 
   @impl true
-  def handle_info({:connect_node, 0, from}, state) do
+  def handle_info({:connect, _master, 0, from}, state) do
     unless is_nil(from), do: GenServer.reply(from, {:error, :retry_limit_exceed})
     {:noreply, state}
   end
 
-  def handle_info({:connect_node, counter, from}, state) do
+  def handle_info({:connect, master, counter, from}, state) do
     %{retry_interval: retry_interval, copy_type: copy_type} = state
 
-    case try_connect_node(Node.list(), copy_type) do
-      {:error, :not_found} ->
-        Logger.info("connect_node no node found, retry in #{retry_interval}ms")
-        schedule_connect_node(counter - 1, retry_interval, from)
+    case try_connect_node(master, copy_type) do
+      {:error, :noconnection} ->
+        Logger.warn("connect cannot connect to #{inspect(master)}, retry in #{retry_interval}ms")
+        new_counter = if counter == :infinity, do: :infinity, else: counter - 1
+        schedule_connect_node(master, new_counter, retry_interval, from)
         {:noreply, state}
 
-      {:ok, node} ->
-        Logger.info("connect_node master: #{inspect(node)} - copy_type: #{inspect(copy_type)}")
+      :ok ->
+        Logger.info("connected to master: #{inspect(master)} - copy_type: #{inspect(copy_type)}")
+        GenServer.reply(from, :ok)
         {:noreply, %{state | connected: true}}
     end
   end
 
   ## Helpers
 
-  defp schedule_connect_node(counter, interval, from \\ nil) do
-    Process.send_after(self(), {:connect_node, counter, from}, interval)
+  defp schedule_connect_node(master, counter, interval, from \\ nil) do
+    Process.send_after(self(), {:connect, master, counter, from}, interval)
   end
 
-  defp try_connect_node([], _copy_type), do: {:error, :not_found}
+  defp try_connect_node(master, copy_type) do
+    Logger.debug("connect trying to connect to #{inspect(master)}")
 
-  defp try_connect_node([master | _nodes], copy_type) do
-    GenServer.multi_call([master], __MODULE__, {:request_join, node(), copy_type}) |> IO.inspect()
-    {:ok, master}
+    result = GenServer.multi_call([master], @default_name, {:request_join, node(), copy_type})
+
+    case result do
+      {[{^master, :ok}], []} -> :ok
+      _ -> {:error, :noconnection}
+    end
   end
 end

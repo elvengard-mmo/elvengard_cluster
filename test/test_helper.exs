@@ -1,5 +1,5 @@
-# start the current node as a manager
+# Start the current node as a manager
 :ok = ElvenGard.Cluster.Testing.LocalCluster.start()
 
-# run all tests!
+# Run all tests!
 ExUnit.start()
