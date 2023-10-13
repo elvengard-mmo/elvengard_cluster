@@ -13,30 +13,25 @@ defmodule ElvenGard.Cluster.DistributedSupervisor.DefaultRing do
   def new(opts) do
     nodes = validate_nodes!(opts)
     vnode_size = Keyword.get(opts, :vnode_size, 128)
-    n = Keyword.get(opts, :n, length(nodes))
+    replicas = Keyword.get(opts, :replicas, default_replicas(nodes))
 
     %Ring{
-      # Sort to ensure all physical nodes will have the same list
+      # Sort to ensure all physical nodes will have the same ring
       nodes: Enum.sort(nodes),
       vnode_size: vnode_size,
-      n: n
+      replicas: replicas
     }
   end
 
   @impl true
-  def hash(key, %Ring{vnode_size: vnode_size}) do
-    key
-    |> :erlang.term_to_binary()
-    |> then(&:crypto.hash(:sha, &1))
-    |> rem(vnode_size)
-  end
-
-  @impl true
-  def max_hash() do
-    Integer.pow(2, 160)
+  def hash(key, _ring) do
+    <<value::integer-160>> = :crypto.hash(:sha, :erlang.term_to_binary(key))
+    value
   end
 
   ## Helpers
+
+  defp default_replicas(nodes), do: min(length(nodes), 3)
 
   defp validate_nodes!(opts) do
     case Keyword.get(opts, :nodes) do
