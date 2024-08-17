@@ -102,13 +102,16 @@ defmodule ElvenGard.Cluster.MnesiaClusterManager do
 
     case {try_connect_node(master, copy_type), counter} do
       {{:error, :noconnection}, counter} when counter == :infinity or counter > 1 ->
-        Logger.warn("connect cannot connect to #{inspect(master)}, retry in #{retry_interval}ms")
+        Logger.warning(
+          "connect cannot connect to #{inspect(master)}, retry in #{retry_interval}ms"
+        )
+
         new_counter = if counter == :infinity, do: :infinity, else: counter - 1
         schedule_connect_node(master, new_counter, retry_interval, from)
         {:noreply, state}
 
       {{:error, :noconnection}, _counter} ->
-        Logger.warn("connect cannot connect to #{inspect(master)}")
+        Logger.warning("connect cannot connect to #{inspect(master)}")
         maybe_reply(from, {:error, :retry_limit_exceed})
         {:noreply, state}
 
